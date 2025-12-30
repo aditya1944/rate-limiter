@@ -1,6 +1,7 @@
 package ratelimiter
 
 import (
+	"errors"
 	"math"
 	"sync"
 	"time"
@@ -27,12 +28,14 @@ type rateLimiter struct {
 // When burstSize = 0, then all requests will be rejected
 // When tokenRate = 0, then for every unique key, only "burstSize" number of requests
 // will be let through for one session(~1 hour).
-func New(tokenRate float64, burstSize uint) *rateLimiter {
+func New(tokenRate float64, burstSize uint) (*rateLimiter, error) {
 
 	// (tokenRate * 5000 + burstSize) <= 2 ^ (arch size)
 	// 5000 seconds is time elapsed, if key were to remain until that time(taking worst case)
 
-	validate(tokenRate, burstSize)
+	if err := validate(tokenRate, burstSize); err != nil {
+		return nil, err
+	}
 
 	r := &rateLimiter{
 		tokenRate: tokenRate,
@@ -66,7 +69,7 @@ func New(tokenRate float64, burstSize uint) *rateLimiter {
 		}
 	}()
 
-	return r
+	return r, nil
 }
 
 func (r *rateLimiter) Allow(key string) bool {
@@ -97,7 +100,10 @@ func (r *rateLimiter) Allow(key string) bool {
 		// the first time. we will need to update the value
 		t = now()
 
-		buck := val.(bucket)
+		buck, ok := val.(bucket)
+		if !ok {
+			panic("val should be of bucket type")
+		}
 
 		// first, fill the bucket with desired token rate
 		timeElapsed := t.Sub(buck.lastRefill)
@@ -134,10 +140,10 @@ func (r *rateLimiter) Close() {
 	close(r.done)
 }
 
-func validate(tokenRate float64, burstSize uint) {
+func validate(tokenRate float64, burstSize uint) error {
 
 	if tokenRate < 0 {
-		panic("token rate should not be negative")
+		return errors.New("token rate should not be negative")
 	}
 
 	// tokenRate * 5000 should not be over uint limit as it will overflow at line 105
@@ -145,7 +151,7 @@ func validate(tokenRate float64, burstSize uint) {
 	// 3600 seconds.
 	// there can be such case where cleanup activity takes more time, hence 5000 is used
 	if tokenRate*5000 > math.MaxUint {
-		panic("token rate limit overflow")
+		return errors.New("token rate limit overflow")
 	}
 
 	// check if a * 5000 + b <= 2 ^ maxIntSize
@@ -155,6 +161,7 @@ func validate(tokenRate float64, burstSize uint) {
 	var maxValue uint = math.MaxUint
 
 	if tokenRate > float64(maxValue-burstSize)/5000.0 {
-		panic("limit overflow")
+		return errors.New("limit overflow")
 	}
+	return nil
 }

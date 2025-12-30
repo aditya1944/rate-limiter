@@ -15,61 +15,59 @@ func TestInput(t *testing.T) {
 		name        string
 		tokenRate   float64
 		burstSize   uint
-		shouldPanic bool
+		shouldError bool
 	}{
 		{
 			name:        "token rate is lower than burst size",
 			tokenRate:   21,
 			burstSize:   32,
-			shouldPanic: false,
+			shouldError: false,
 		},
 		{
 			name:        "when tokenrate and burstSize is MaxUint",
 			tokenRate:   math.MaxUint,
 			burstSize:   math.MaxUint,
-			shouldPanic: true,
+			shouldError: true,
 		},
 		{
 			name:        "boundary condition for code to not panic",
 			tokenRate:   math.MaxUint / 5000,
 			burstSize:   0,
-			shouldPanic: false,
+			shouldError: false,
 		},
 		{
 
 			name:        "boundary condition for code to panic",
 			tokenRate:   (math.MaxUint / 5000) + 1,
 			burstSize:   0,
-			shouldPanic: true,
+			shouldError: true,
 		},
 		{
 			name:        "token rate is higher than burst size",
 			tokenRate:   23,
 			burstSize:   20,
-			shouldPanic: false,
+			shouldError: false,
 		},
 		{
 			name:        "token rate is negative",
 			tokenRate:   -2.34,
 			burstSize:   23,
-			shouldPanic: true,
+			shouldError: true,
 		},
 	}
 
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			defer func() {
-				r := recover()
-				if tc.shouldPanic && r == nil {
-					t.Error("expected panic, but code did not panic")
-				}
-				if !tc.shouldPanic && r != nil {
-					t.Error("expected code to not panic, but code panicked")
-				}
-			}()
-			limiter := New(tc.tokenRate, tc.burstSize)
-			limiter.Close()
+			_, err := New(tc.tokenRate, tc.burstSize)
+
+			if tc.shouldError && err == nil {
+				t.Errorf("expected error, but got nil error")
+			}
+
+			if !tc.shouldError && err != nil {
+				t.Errorf("not expected error but got error")
+			}
 		})
 	}
 }
@@ -110,7 +108,7 @@ func TestAllow(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			rateLimiter := New(tc.tokenRate, tc.burstSize)
+			rateLimiter, _ := New(tc.tokenRate, tc.burstSize)
 			defer rateLimiter.Close()
 
 			allowedRequests := 0
@@ -131,7 +129,7 @@ func TestAllowWhenKeyIsEvictedFromCache(t *testing.T) {
 
 	synctest.Test(t, func(t *testing.T) {
 
-		rateLimiter := New(0.0167, 1) // one token per minute; burst size of 1
+		rateLimiter, _ := New(0.0167, 1) // one token per minute; burst size of 1
 		defer rateLimiter.Close()
 
 		if allowed := rateLimiter.Allow("user1"); !allowed {
@@ -156,7 +154,7 @@ func TestAllowTokenRateFill(t *testing.T) {
 
 	synctest.Test(t, func(t *testing.T) {
 
-		rateLimiter := New(1, 10) // one token per second; burst size of 10
+		rateLimiter, _ := New(1, 10) // one token per second; burst size of 10
 		defer rateLimiter.Close()
 
 		for range 10 {
@@ -188,7 +186,7 @@ func TestAllowTokenRateFill(t *testing.T) {
 
 func TestAllowSteadyTraffic(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		rateLimiter := New(10, 10)
+		rateLimiter, _ := New(10, 10)
 		defer rateLimiter.Close()
 
 		for range 10 {
@@ -218,7 +216,7 @@ func TestAllowSteadyTraffic(t *testing.T) {
 }
 
 func BenchmarkAllow(b *testing.B) {
-	rateLimiter := New(1000, 10000)
+	rateLimiter, _ := New(1000, 10000)
 	defer rateLimiter.Close()
 
 	i := 0
@@ -231,7 +229,7 @@ func BenchmarkAllow(b *testing.B) {
 }
 
 func BenchmarkAllowParallel(b *testing.B) {
-	rateLimiter := New(1000, 10000)
+	rateLimiter, _ := New(1000, 10000)
 	defer rateLimiter.Close()
 
 	b.ResetTimer()
