@@ -3,6 +3,7 @@ package ratelimiter
 import (
 	"fmt"
 	"math"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -212,6 +213,58 @@ func TestAllowSteadyTraffic(t *testing.T) {
 			t.Error("expected 6th request to be not allowed, but allowed")
 		}
 
+	})
+}
+
+func TestConcurrentSafety(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		rateLimiter, _ := New(10, 100)
+		defer rateLimiter.Close()
+
+		ch := make(chan bool, 100*100+110*5)
+
+		var wg sync.WaitGroup
+
+		for range 100 {
+			wg.Go(func() {
+				for i := range 100 {
+					// 20 unique keys (user-0 through user-19)
+					// Each key receives 500 requests total (100 goroutines × 5 requests each)
+					ch <- rateLimiter.Allow(fmt.Sprintf("user-%d", i%20))
+				}
+			})
+		}
+		wg.Wait()
+
+		time.Sleep(1 * time.Second)
+		synctest.Wait()
+
+		// every bucket fills up by 10 tokens
+		// verify if every key can have 10 tokens
+
+		// incremented this loop count by 10
+		for i := range 100 + 10 {
+			key := fmt.Sprintf("user-%d", i%20)
+			// incremented this loop count by 3
+			for range 2 + 3 {
+				ch <- rateLimiter.Allow(key)
+			}
+		}
+
+		close(ch)
+
+		allowed := 0
+
+		for val := range ch {
+			if val {
+				allowed++
+			}
+		}
+
+		if allowed != 2000+200 {
+			t.Errorf("expected allowed count to be 2000 + 200, but got %d", allowed)
+		}
 	})
 }
 
